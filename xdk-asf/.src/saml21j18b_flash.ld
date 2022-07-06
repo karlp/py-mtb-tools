@@ -1,0 +1,1 @@
+xdk-asf-3.51.0/sam0/utils/linker_scripts/saml21/gcc/saml21j18b_flash.ld
