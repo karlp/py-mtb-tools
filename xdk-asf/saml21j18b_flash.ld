@@ -50,7 +50,11 @@ SEARCH_DIR(.)
 MEMORY
 {
   rom      (rx)  : ORIGIN = 0x00000000, LENGTH = 0x00040000
-  ram      (rwx) : ORIGIN = 0x20000000, LENGTH = 0x00008000
+  /* NOTE: 4096 bytes are carved out at the front of SRAM for the MTB
+   *       buffer... a further 64 bytes are reserved for padding, leaving
+   *       approx ~28 KiB for the application's use
+   */
+  ram      (rwx) : ORIGIN = 0x20001040, LENGTH = 0x00006fc0
   lpram    (rwx) : ORIGIN = 0x30000000, LENGTH = 0x00002000
 }
 

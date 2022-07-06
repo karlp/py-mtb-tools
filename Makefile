@@ -2,7 +2,7 @@ LDSCRIPT = xdk-asf/saml21j18b_flash.ld
 BOOTUP = xdk-asf/startup_saml21.o xdk-asf/system_saml21.o
 MCUTYPE=__SAML21J18B__
 
-OBJS=$(BOOTUP) main.o sieve.o
+OBJS=$(BOOTUP) main.o sieve.o mtb.o
 
 # Tools
 CC=arm-none-eabi-gcc
@@ -29,6 +29,6 @@ clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(ELF)
 
 flash debug: %: $(ELF)
-	arm-none-eabi-gdb -x $@.gdb $(ELF)
+	arm-none-eabi-gdb-py -x $@.gdb $(ELF)
 
 -include $(OBJS:.o=.d)
