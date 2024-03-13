@@ -3,8 +3,6 @@
 # example code, copied from:
 #   https://interrupt.memfault.com/blog/instruction-tracing-mtb-m33
 #
-# NOTE: MTB_PERIPHERAL_ADDR has been adjusted for the SAML21, you may need
-#       to do the same!
 
 try:
     import gdb
@@ -59,8 +57,8 @@ class Mtb(gdb.Command):
     def __init__(self):
         super(Mtb, self).__init__("mtb", gdb.COMMAND_STATUS, gdb.COMPLETE_NONE)
 
-    def decode(self, limit=None):
-        MTB_PERIPHERAL_ADDR = 0x41006000
+    def decode(self, base, limit=None):
+        MTB_PERIPHERAL_ADDR = base
         MTB_POSITION = MTB_PERIPHERAL_ADDR + 0x0
         MTB_MASTER = MTB_PERIPHERAL_ADDR + 0x4
         MTB_BASE = MTB_PERIPHERAL_ADDR + 0xC
@@ -124,13 +122,14 @@ class Mtb(gdb.Command):
         parser.add_argument(
             "-l", "--limit", type=int, help="The maximum number of packets to decode"
         )
+        parser.add_argument("-M", "--mtb_base", help="Base address of MTB registers", default="0x41006000")
 
         try:
             args = parser.parse_args(list(filter(None, unicode_args.split(" "))))
         except GdbArgumentParseError:
             return
 
-        self.decode(limit=args.limit)
+        self.decode(base=int(args.mtb_base, 0), limit=args.limit)
 
 
 Mtb()
