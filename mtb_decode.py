@@ -38,6 +38,10 @@ def gdb_read_word(address):
     reg_val = struct.unpack("<I", reg_data)[0]
     return reg_val
 
+def gdb_write_word(address, value: int):
+    reg_val = struct.pack("<I", value)
+    reg_data = gdb.selected_inferior().write_memory(address, reg_val)
+
 
 class GdbArgumentParseError(Exception):
     pass
@@ -55,31 +59,75 @@ class GdbArgumentParser(argparse.ArgumentParser):
 
 class Mtb(gdb.Command):
     def __init__(self):
+        self.MTB_PERIPHERAL_ADDR = None
+        self.MTB_POSITION = None
+        self.MTB_MASTER = None
+        self.MTB_BASE = None
         super(Mtb, self).__init__("mtb", gdb.COMMAND_STATUS, gdb.COMPLETE_NONE)
 
-    def decode(self, base, limit=None):
-        MTB_PERIPHERAL_ADDR = base
-        MTB_POSITION = MTB_PERIPHERAL_ADDR + 0x0
-        MTB_MASTER = MTB_PERIPHERAL_ADDR + 0x4
-        MTB_BASE = MTB_PERIPHERAL_ADDR + 0xC
 
-        mtb_position_val = gdb_read_word(MTB_POSITION)
+    def _determine_awidth(self, original_position_val):
+        """
+        Awidth is required to correctly turn POSITION values into actual system memory addresses.
+        Unfortunately, you can't determine it without writing and reading back the position register.
+        Assuming we're in post mortem type situation, halted in gdb, this is fine to do every time.
+        See Chapter B1 in the coresight mtb trm for more information (ARM DDI 0486B)
+        :param original_position_val: the value to restore to the mtb position register
+        :return: 2^address_width, the term needed for later calculations.
+        """
+        # now, we must determine awidth.  We could let it be provided, and avoid this dance, but if we assume
+        # we're stopped to inspect the trace, then this is ok, and "auto" good :)
+        mtb_master_val = gdb_read_word(self.MTB_MASTER)
+        self.mask = mtb_master_val & 0x1F
+        self.mtb_sram_size = 2 ** (self.mask + 4)
+
+        gdb_write_word(self.MTB_POSITION, 0xffffffff)
+        aw_source = gdb_read_word(self.MTB_POSITION)
+        gdb_write_word(self.MTB_POSITION, original_position_val)
+        aw_source &= 0xfffffff8
+        aw_n = 0
+        # counting bits set
+        for i in range(32):
+            if aw_source & (1<<i):
+                aw_n += 1
+        awidth = aw_n + 3
+        return 1 << awidth
+
+
+    def decode(self, base, limit=None):
+        self.MTB_PERIPHERAL_ADDR = base
+        self.MTB_POSITION = self.MTB_PERIPHERAL_ADDR + 0x0
+        self.MTB_MASTER = self.MTB_PERIPHERAL_ADDR + 0x4
+        self.MTB_BASE = self.MTB_PERIPHERAL_ADDR + 0xC
+
+        mtb_position_val = gdb_read_word(self.MTB_POSITION)
+        aw = self._determine_awidth(mtb_position_val)
+
+        # Now that we have awdith, we can calculate the actual block base using the mask field.
+        mtb_base_val = gdb_read_word(self.MTB_BASE)
+        mtb_master_val = gdb_read_word(self.MTB_MASTER)
+        mask = mtb_master_val & 0x1F
+        mtb_sram_size = 2 ** (mask + 4)
+
         write_offset = mtb_position_val & 0xFFFFFFF8
+        write_offset = mtb_base_val + ((write_offset + (aw - (mtb_base_val % aw))) % aw)
+        my_mask = 0
+        # plus 3, plus one for python loops)
+        for x in range(mask + 4):
+            my_mask |= (1<<x)
+        block_base = write_offset & ~my_mask
+        print(f"Ok, block at real: {block_base:#08x} of size: {mtb_sram_size} bytes")
+
+
         wrap = mtb_position_val & (1 << 2)
 
-        mtb_base_val = gdb_read_word(MTB_BASE)
-
-        mtb_master_val = gdb_read_word(MTB_MASTER)
-        mask = mtb_master_val & 0x1F
-
-        mtb_sram_size = 2 ** (mask + 4)
         valid_size = mtb_sram_size if wrap else write_offset
         oldest_pkt = write_offset if wrap else 0
 
         start = 0 if not limit else max(0, valid_size - limit * 8)
 
         for offset in range(start, valid_size, 8):
-            pkt_addr = mtb_base_val + (oldest_pkt + offset) % mtb_sram_size
+            pkt_addr = block_base + (oldest_pkt + offset) % mtb_sram_size
 
             # Read the source and destination addresses
             s_addr = gdb_read_word(pkt_addr)
