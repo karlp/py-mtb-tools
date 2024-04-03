@@ -22,7 +22,7 @@ def gdb_address_to_function(address):
             block = block.superblock
     except RuntimeError:
         pass
-    return hex(address)
+    return gdb.format_address(address)
 
 
 def gdb_address_to_function_file_line(address):
